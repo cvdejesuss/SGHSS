@@ -11,3 +11,4 @@ app.include_router(record_router.router)
 @app.get("/")
 def read_root():
     return {"msg": "SGHSS Backend está rodando"}
+
