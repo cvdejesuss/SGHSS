@@ -11,6 +11,7 @@ from datetime import datetime
 
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
+
 @router.post("/", response_model=AppointmentOut, dependencies=[Depends(JWTBearer())])
 def create_appointment(data: AppointmentCreate, token_data: dict = Depends(JWTBearer()), db: Session = Depends(get_db)):
     # Verifica se paciente existe

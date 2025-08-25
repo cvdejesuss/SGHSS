@@ -5,6 +5,7 @@ from decouple import config
 SECRET_KEY = config("SECRET_KEY", default="meusegredo")
 ALGORITHM = "HS256"
 
+
 # Gera o token JWT
 def sign_jwt(user_id: int, role: str):
     payload = {
@@ -14,6 +15,7 @@ def sign_jwt(user_id: int, role: str):
     }
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
     return {"access_token": token}
+
 
 # Decodifica e valida o token
 def decode_jwt(token: str):

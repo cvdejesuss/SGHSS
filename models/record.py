@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from database import Base
 
+
 class MedicalRecord(Base):
     __tablename__ = "records"
 
