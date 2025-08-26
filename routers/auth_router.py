@@ -1,47 +1,116 @@
-from fastapi import APIRouter, Depends, HTTPException
+# routers/auth_router.py
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
+
 from database import get_db
 from models.user import User
-from passlib.context import CryptContext
-from pydantic import BaseModel
-from datetime import datetime, timedelta
-from jose import jwt
+from core.config import pwd_context, ACCESS_TOKEN_EXPIRE_MINUTES
+from auth.jwt_handler import create_access_token
+from auth.auth_utils import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
-# Configuração do bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Configuração do JWT
-SECRET_KEY = "qH7vL9gXTr1eW3fPzM0yVcB2NaK8JdRu"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
-
-
-# Modelo de login
+# ======== SCHEMAS ========
 class LoginRequest(BaseModel):
-    email: str
-    password: str
+    email: EmailStr
+    password: str = Field(min_length=4)
 
 
-# Função para gerar token JWT
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+class RegisterRequest(BaseModel):
+    name: str = Field(min_length=2)
+    email: EmailStr
+    password: str = Field(min_length=4)
+    # Ajuste conforme seu domínio: "admin", "medico", "atendente", etc.
+    role: str = Field(default="user")
 
 
-# Endpoint de login com geração do token JWT
-@router.post("/login")
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES
+    user_id: int
+    role: str
+
+
+class UserOut(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    role: str
+
+    class Config:
+        from_attributes = True
+
+
+# ======== HELPERS ========
+def _verify_password(plain: str, hashed: str) -> bool:
+    try:
+        return pwd_context.verify(plain, hashed)
+    except Exception:
+        return False
+
+
+def _hash_password(plain: str) -> str:
+    return pwd_context.hash(plain)
+
+
+# ======== ROUTES ========
+@router.post("/login", response_model=TokenResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
+    """
+    Autentica um usuário por e-mail/senha e retorna um access token (JWT).
+    O token contém:
+      - sub = e-mail do usuário (chave padrão para identificação)
+      - uid, role = metadados úteis para o front
+    """
     user = db.query(User).filter(User.email == data.email).first()
-    if not user or not pwd_context.verify(data.password, user.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user or not _verify_password(data.password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciais inválidas"
+        )
 
-    access_token = create_access_token(data={"sub": user.email})
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user_id": user.id
-    }
+    token = create_access_token(
+        sub=user.email,
+        extra={"uid": user.id, "role": user.role}
+    )
+
+    return TokenResponse(
+        access_token=token,
+        user_id=user.id,
+        role=user.role,
+    )
+
+
+@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def register(data: RegisterRequest, db: Session = Depends(get_db)):
+    """
+    Registra um novo usuário.
+    OBS: por padrão está aberto. Se quiser, troque a dependência
+    para exigir um admin: `current=Depends(require_role(["admin"]))`.
+    """
+    existing = db.query(User).filter(User.email == data.email).first()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="E-mail já cadastrado"
+        )
+
+    user = User(
+        name=data.name.strip(),
+        email=str(data.email).lower(),
+        password=_hash_password(data.password),
+        role=data.role.strip().lower(),
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.get("/me", response_model=UserOut)
+def me(current_user: User = Depends(get_current_user)):
+    """Retorna o usuário autenticado a partir do token de acesso."""
+    return current_user
