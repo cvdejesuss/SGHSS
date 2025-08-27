@@ -7,8 +7,9 @@ engine = create_engine(DATABASE_URL, future=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# 🔴 Esse import é o que garante que Alembic “veja” as tabelas
+# 🔴 IMPORTANTE: registra as tabelas no Base.metadata
 import models  # noqa: F401
+
 
 
 
