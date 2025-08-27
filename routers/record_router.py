@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models.record import MedicalRecord
+from models.record import Record
 from models.patient import Patient
 from schemas import RecordCreate, RecordOut
 from datetime import datetime, timezone
@@ -25,7 +25,7 @@ def create_record(
     if not patient:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
-    db_record = MedicalRecord(
+    db_record = Record(
         patient_id=patient_id,
         notes=record.notes,
         created_at=datetime.now(timezone.utc)
@@ -43,5 +43,5 @@ def get_records(
         db: Session = Depends(get_db),
         user=Depends(require_role(["medico", "admin"]))  # se desejar restringir também
 ):
-    records = db.query(MedicalRecord).filter(MedicalRecord.patient_id == patient_id).all()
+    records = db.query(Record).filter(Record.patient_id == patient_id).all()
     return records
