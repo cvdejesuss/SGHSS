@@ -1,4 +1,5 @@
 # auth/jwt_handler.py
+
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from core.config import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES

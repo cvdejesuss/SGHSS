@@ -1,4 +1,5 @@
 # check_db.py
+
 from sqlalchemy import create_engine, text, inspect
 from core.config import DATABASE_URL
 

@@ -1,3 +1,5 @@
+# auth/auth_bearer.py
+
 from fastapi import Request, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from auth.auth_handler import decode_jwt

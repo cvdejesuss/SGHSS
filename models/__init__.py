@@ -1,12 +1,11 @@
-# Importa os MÓDULOS, não as classes.
-# Isso já registra as tabelas no Base.metadata via as classes declaradas neles.
+# models/__init__.py
 
 from . import user
 from . import patient
 from . import appointment
+from . import item, stock_movement
 
-# Alguns projetos chamam o arquivo de record.py, outros de records.py, ou medical_record.py.
-# Tente importar o(s) que existir(em) sem quebrar:
+
 try:
     from . import record
 except ImportError:

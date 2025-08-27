@@ -1,4 +1,5 @@
 # script/peek_metadata.py
+
 import os, sys
 
 # garante que a raiz do projeto (SGHSS) esteja no PYTHONPATH

@@ -1,3 +1,5 @@
+# models/record.py
+
 from sqlalchemy import Column, Integer, Text, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime

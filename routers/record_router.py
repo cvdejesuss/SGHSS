@@ -1,9 +1,11 @@
+# routers/record_router.py
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
 from models.record import Record
 from models.patient import Patient
-from schemas import RecordCreate, RecordOut
+from schemas.record import RecordCreate, RecordOut
 from datetime import datetime, timezone
 from auth.auth_utils import require_role
 

@@ -1,3 +1,5 @@
+# script/create_user.py
+
 from passlib.context import CryptContext
 from models.user import User
 from database import get_db
