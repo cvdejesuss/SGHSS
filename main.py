@@ -1,30 +1,37 @@
 # main.py
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
-from starlette.middleware.cors import CORSMiddleware
+
 from time import monotonic
+from fastapi import FastAPI, Request
+from starlette.middleware.cors import CORSMiddleware
 
 from core.config import settings, AppInfo
-from routers import patient_router, auth_router, appointment_router, record_router
-from routers import item_router, stock_router
+
+# importe APENAS os routers; não inclua nada fora deste arquivo
+from routers import (
+    auth_router,
+    patient_router,
+    appointment_router,
+    record_router,
+    item_router,
+    stock_router,
+)
 
 description = """
 SGHSS — Sistema de Gestão Hospitalar e de Saúde.
-
-Este backend oferece módulos de **Pacientes**, **Autenticação**, **Consultas**, **Prontuário**, **Estoque** e **Itens**.
+Módulos: Auth, Pacientes, Consultas, Prontuários, Itens e Estoque.
 """
 
 app = FastAPI(
     title=settings.APP_NAME,
     description=description,
-    version="0.1.0",
+    version=settings.APP_VERSION,
     debug=settings.DEBUG,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
 )
 
-# CORS
+# CORS (ajuste conforme seu front)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -33,66 +40,43 @@ app.add_middleware(
     allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
-# Middleware simples de latência e request-id (header opcional)
+# Middleware simples de latência e request-id
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
     start = monotonic()
     response = await call_next(request)
     process_time = monotonic() - start
     response.headers["X-Process-Time"] = f"{process_time:.4f}s"
-    # Propaga um request id se vier do front (útil pra logs correlacionados)
     req_id = request.headers.get("X-Request-ID")
     if req_id:
         response.headers["X-Request-ID"] = req_id
     return response
 
-# Handlers básicos de erro (mensagens mais consistentes)
-@app.exception_handler(Exception)
-async def unhandled_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Erro interno inesperado. Tente novamente mais tarde."},
-    )
-
-# Inclui routers com prefixo de versão
+# === Inclua cada router UMA única vez, com o mesmo prefixo global ===
 api_prefix = settings.API_V1_PREFIX
-app.include_router(patient_router.router, prefix=api_prefix, tags=["Pacientes"])
-app.include_router(auth_router.router, prefix=api_prefix, tags=["Auth"])
-app.include_router(appointment_router.router, prefix=api_prefix, tags=["Consultas"])
-app.include_router(record_router.router, prefix=api_prefix, tags=["Prontuários"])
-app.include_router(item_router.router, prefix=api_prefix, tags=["Itens"])
-app.include_router(stock_router.router, prefix=api_prefix, tags=["Estoque"])
 
+app.include_router(auth_router.router,        prefix=api_prefix)  # /api/v1/auth/...
+app.include_router(patient_router.router,     prefix=api_prefix)  # /api/v1/patients/...
+app.include_router(appointment_router.router, prefix=api_prefix)  # /api/v1/appointments/...
+app.include_router(record_router.router,      prefix=api_prefix)  # /api/v1/patients/{id}/records/...
+app.include_router(item_router.router,        prefix=api_prefix)  # /api/v1/items/...
+app.include_router(stock_router.router,       prefix=api_prefix)  # /api/v1/stock/...
+
+# Endpoints utilitários
 @app.get("/")
 def read_root():
-    """
-    Endpoint de boas-vindas (não versionado) — útil para checar se o serviço está de pé.
-    """
     return {"msg": f"{settings.APP_NAME} está rodando"}
 
 @app.get(f"{api_prefix}/healthz")
 def healthz():
-    """
-    Liveness probe — indica se a aplicação está viva.
-    """
     return {"status": "ok"}
 
 @app.get(f"{api_prefix}/readiness")
 def readiness():
-    """
-    Readiness probe — aqui podemos, no futuro, testar conexão com DB/mensageria.
-    """
     return {"status": "ready"}
 
 @app.get(f"{api_prefix}/info", response_model=AppInfo)
 def info():
-    """
-    Informações úteis para o front/monitoramento.
-    """
-    return AppInfo(
-        name=settings.APP_NAME,
-        env=settings.APP_ENV,
-        version="0.1.0",
-        docs="/docs",
-    )
+    return AppInfo()
+
 

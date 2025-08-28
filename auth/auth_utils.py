@@ -1,25 +1,58 @@
 # auth/auth_utils.py
 
-from typing import Iterable
-from fastapi import Depends, HTTPException, status
+from typing import Optional
+
+from fastapi import Depends, HTTPException, Security, status
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
+
 from database import get_db
 from models.user import User
-from .jwt_bearer import get_token_payload  # <= reutiliza a validação do token
+from core.config import settings
+from .jwt_handler import verify_access_token
 
-def get_current_user(
-    payload: dict = Depends(get_token_payload),
-    db: Session = Depends(get_db),
-) -> User:
+# Swagger: fluxo OAuth2 Password (form) — permite "Authorize" com username/password
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl=f"{settings.API_V1_PREFIX}/auth/token",
+    auto_error=False,  # deixamos False para podermos cair no HTTPBearer se não vier token por aqui
+)
+
+# Swagger: esquema HTTP Bearer — permite "Authorize" colando apenas o token (Value)
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _resolve_token(
+    oauth2_token: Optional[str] = Depends(oauth2_scheme),
+    bearer: Optional[HTTPAuthorizationCredentials] = Security(bearer_scheme),
+) -> str:
     """
-    Obtém o usuário autenticado a partir do payload do JWT.
-    Espera 'sub' = email no payload (padrão comum).
+    Aceita token via:
+      - OAuth2PasswordBearer (após login no cadeado com username/password)
+      - HTTPBearer (colando o JWT no cadeado)
+    Dá preferência ao Bearer explícito; se não houver, usa o OAuth2.
     """
-    credentials_exc = HTTPException(
+    if bearer and bearer.scheme.lower() == "bearer" and bearer.credentials:
+        return bearer.credentials
+    if oauth2_token:
+        return oauth2_token
+
+    raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Credenciais inválidas",
+        detail="Credenciais ausentes.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def get_current_user(token: str = Depends(_resolve_token), db: Session = Depends(get_db)) -> User:
+    credentials_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token inválido ou expirado",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    payload = verify_access_token(token)
+    if payload is None:
+        raise credentials_exc
 
     email = payload.get("sub")
     if not email:
@@ -29,29 +62,14 @@ def get_current_user(
     if not user:
         raise credentials_exc
 
-    # Se seu modelo tiver 'is_active' (ou similar), vale a pena checar:
-    if hasattr(user, "is_active") and getattr(user, "is_active") is False:
-        raise HTTPException(status_code=403, detail="Usuário inativo")
-
     return user
 
 
-def require_role(required_roles: Iterable[str]):
-    """
-    Dependência para proteger rotas por papel.
-    Uso:
-      @router.get("/...", dependencies=[Depends(require_role({"admin","gestor"}))])
-    """
-    required_set = set(required_roles)
-
-    def checker(current_user: User = Depends(get_current_user)) -> User:
-        user_role = getattr(current_user, "role", None)
-        if user_role not in required_set:
-            raise HTTPException(
-                status_code=403,
-                detail="Você não tem permissão para acessar este recurso.",
-            )
+def require_role(required_roles: list[str]):
+    def role_checker(current_user: User = Depends(get_current_user)):
+        if current_user.role not in required_roles:
+            raise HTTPException(status_code=403, detail="Você não tem permissão para acessar este recurso.")
         return current_user
+    return role_checker
 
-    return checker
 
