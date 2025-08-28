@@ -1,37 +1,57 @@
 # auth/auth_utils.py
 
+from typing import Iterable
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from jose import JWTError, jwt
 from database import get_db
 from models.user import User
-from core.config import SECRET_KEY, ALGORITHM
+from .jwt_bearer import get_token_payload  # <= reutiliza a validação do token
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
-
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+def get_current_user(
+    payload: dict = Depends(get_token_payload),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    Obtém o usuário autenticado a partir do payload do JWT.
+    Espera 'sub' = email no payload (padrão comum).
+    """
     credentials_exc = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token inválido ou expirado",
+        detail="Credenciais inválidas",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str | None = payload.get("sub")
-        if not email:
-            raise credentials_exc
-    except JWTError:
+
+    email = payload.get("sub")
+    if not email:
         raise credentials_exc
+
     user = db.query(User).filter(User.email == email).first()
     if not user:
         raise credentials_exc
+
+    # Se seu modelo tiver 'is_active' (ou similar), vale a pena checar:
+    if hasattr(user, "is_active") and getattr(user, "is_active") is False:
+        raise HTTPException(status_code=403, detail="Usuário inativo")
+
     return user
 
-def require_role(required_roles: list[str]):
-    def role_checker(current_user: User = Depends(get_current_user)):
-        if current_user.role not in required_roles:
-            raise HTTPException(status_code=403, detail="Você não tem permissão para acessar este recurso.")
+
+def require_role(required_roles: Iterable[str]):
+    """
+    Dependência para proteger rotas por papel.
+    Uso:
+      @router.get("/...", dependencies=[Depends(require_role({"admin","gestor"}))])
+    """
+    required_set = set(required_roles)
+
+    def checker(current_user: User = Depends(get_current_user)) -> User:
+        user_role = getattr(current_user, "role", None)
+        if user_role not in required_set:
+            raise HTTPException(
+                status_code=403,
+                detail="Você não tem permissão para acessar este recurso.",
+            )
         return current_user
-    return role_checker
+
+    return checker
 

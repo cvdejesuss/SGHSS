@@ -4,9 +4,9 @@ from datetime import datetime
 from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_
+from sqlalchemy import and_
 
 from database import get_db
 from auth.auth_utils import get_current_user
@@ -18,10 +18,10 @@ from schemas.appointment import AppointmentCreate, AppointmentOut
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
 # ---------------------------
-# Schemas (complementares)
+# Status padronizados
 # ---------------------------
-
 AllowedStatus = Literal["SCHEDULED", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"]
+ALLOWED_STATUSES: set[str] = {"SCHEDULED", "CONFIRMED", "CANCELLED", "COMPLETED", "NO_SHOW"}
 
 
 class AppointmentUpdate(BaseModel):
@@ -37,10 +37,6 @@ class StatusChange(BaseModel):
     status: AllowedStatus
 
 
-# ---------------------------
-# Helpers de permissão
-# ---------------------------
-
 def _can_manage(appt: Appointment, current_user: User) -> bool:
     """Regra simples:
        - admin pode tudo
@@ -51,25 +47,40 @@ def _can_manage(appt: Appointment, current_user: User) -> bool:
     return appt.professional_id == current_user.id
 
 
+def _exists_same_slot(db: Session, professional_id: int, date: datetime, exclude_id: int | None = None) -> bool:
+    """Anti-overbooking exato (mesma data/hora)."""
+    q = db.query(Appointment).filter(
+        Appointment.professional_id == professional_id,
+        Appointment.date == date,
+    )
+    if exclude_id is not None:
+        q = q.filter(Appointment.id != exclude_id)
+    return db.query(q.exists()).scalar() is True
+
+
 # ---------------------------
 # CREATE
 # ---------------------------
 
 @router.post("/", response_model=AppointmentOut, status_code=status.HTTP_201_CREATED)
 def create_appointment(
-        data: AppointmentCreate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    data: AppointmentCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     # valida paciente
     patient = db.query(Patient).filter(Patient.id == data.patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
+    # anti-overbooking exato para o profissional autenticado
+    if _exists_same_slot(db, current_user.id, data.date):
+        raise HTTPException(status_code=409, detail="Já existe uma consulta para este profissional neste horário.")
+
     appt = Appointment(
         patient_id=data.patient_id,
         professional_id=current_user.id,  # profissional autenticado
-        date=data.date if isinstance(data.date, datetime) else datetime.fromisoformat(str(data.date)),
+        date=data.date,                    # Pydantic já entrega datetime
         status="SCHEDULED",
         reason=getattr(data, "reason", None),
     )
@@ -85,18 +96,18 @@ def create_appointment(
 
 @router.get("/", response_model=list[AppointmentOut])
 def list_appointments(
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
-        # filtros
-        patient_id: Optional[int] = None,
-        professional_id: Optional[int] = None,
-        status_filter: Optional[AllowedStatus] = Query(None, alias="status"),
-        date_from: Optional[datetime] = None,
-        date_to: Optional[datetime] = None,
-        # paginação/ordenação
-        limit: int = Query(50, ge=1, le=200),
-        offset: int = Query(0, ge=0),
-        sort: Literal["date_asc", "date_desc", "created_desc", "created_asc"] = "date_asc",
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    # filtros
+    patient_id: Optional[int] = None,
+    professional_id: Optional[int] = None,
+    status_filter: Optional[AllowedStatus] = Query(None, alias="status"),
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    # paginação/ordenação
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    sort: Literal["date_asc", "date_desc", "created_desc", "created_asc"] = "date_asc",
 ):
     q = db.query(Appointment)
 
@@ -135,9 +146,9 @@ def list_appointments(
 
 @router.get("/{appointment_id}", response_model=AppointmentOut)
 def get_appointment(
-        appointment_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    appointment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     appt = db.get(Appointment, appointment_id)
     if not appt:
@@ -155,10 +166,10 @@ def get_appointment(
 
 @router.patch("/{appointment_id}", response_model=AppointmentOut)
 def update_appointment(
-        appointment_id: int,
-        payload: AppointmentUpdate,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    appointment_id: int,
+    payload: AppointmentUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     appt = db.get(Appointment, appointment_id)
     if not appt:
@@ -175,12 +186,17 @@ def update_appointment(
         appt.patient_id = payload.patient_id
 
     if payload.date is not None:
+        # anti-overbooking exato
+        if _exists_same_slot(db, appt.professional_id, payload.date, exclude_id=appt.id):
+            raise HTTPException(status_code=409, detail="Já existe uma consulta para este profissional neste horário.")
         appt.date = payload.date
 
     if payload.reason is not None:
         appt.reason = payload.reason
 
     if payload.status is not None:
+        if payload.status not in ALLOWED_STATUSES:
+            raise HTTPException(status_code=400, detail="Status inválido.")
         appt.status = payload.status
 
     db.commit()
@@ -194,10 +210,10 @@ def update_appointment(
 
 @router.post("/{appointment_id}/status", response_model=AppointmentOut)
 def change_status(
-        appointment_id: int,
-        body: StatusChange,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    appointment_id: int,
+    body: StatusChange,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     appt = db.get(Appointment, appointment_id)
     if not appt:
@@ -212,7 +228,6 @@ def change_status(
     return appt
 
 
-# atalhos sem corpo:
 @router.post("/{appointment_id}/confirm", response_model=AppointmentOut)
 def confirm(appointment_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     appt = db.get(Appointment, appointment_id)
@@ -221,7 +236,7 @@ def confirm(appointment_id: int, db: Session = Depends(get_db), current_user: Us
     if not _can_manage(appt, current_user):
         raise HTTPException(status_code=403, detail="Sem permissão")
     appt.status = "CONFIRMED"
-    db.commit();
+    db.commit()
     db.refresh(appt)
     return appt
 
@@ -234,7 +249,7 @@ def cancel(appointment_id: int, db: Session = Depends(get_db), current_user: Use
     if not _can_manage(appt, current_user):
         raise HTTPException(status_code=403, detail="Sem permissão")
     appt.status = "CANCELLED"
-    db.commit();
+    db.commit()
     db.refresh(appt)
     return appt
 
@@ -247,7 +262,7 @@ def complete(appointment_id: int, db: Session = Depends(get_db), current_user: U
     if not _can_manage(appt, current_user):
         raise HTTPException(status_code=403, detail="Sem permissão")
     appt.status = "COMPLETED"
-    db.commit();
+    db.commit()
     db.refresh(appt)
     return appt
 
@@ -258,17 +273,15 @@ def complete(appointment_id: int, db: Session = Depends(get_db), current_user: U
 
 @router.delete("/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_appointment(
-        appointment_id: int,
-        db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user),
+    appointment_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     appt = db.get(Appointment, appointment_id)
     if not appt:
-        raise HTTPException(status_code=404, detail="Consulta não encontrada")
-
+        return
     if not _can_manage(appt, current_user):
         raise HTTPException(status_code=403, detail="Sem permissão")
-
     db.delete(appt)
     db.commit()
-    return None
+

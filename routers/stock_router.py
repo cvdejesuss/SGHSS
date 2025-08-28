@@ -1,7 +1,7 @@
 # routers/stock_router.py
 
 from datetime import date, timedelta
-from typing import Optional
+from typing import Optional, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -11,11 +11,12 @@ from database import get_db
 from models.item import Item
 from models.stock_movement import StockMovement
 from schemas.stock import MovementCreate, MovementOut
+from auth.auth_utils import get_current_user
+from models.user import User
 
 router = APIRouter(prefix="/stock", tags=["stock"])
 
 
-# --- expressão SQL para saldo (IN - OUT) ---
 def _balance_expr():
     return func.coalesce(
         func.sum(
@@ -26,23 +27,16 @@ def _balance_expr():
 
 
 def get_balance(db: Session, item_id: int) -> int:
-    return (
-        db.query(_balance_expr())
-        .filter(StockMovement.item_id == item_id)
-        .scalar()
-        or 0
-    )
+    return (db.query(_balance_expr()).filter(StockMovement.item_id == item_id).scalar() or 0)
 
 
-# ---------- Endpoints ----------
-
+# ---------- MOVE ----------
 @router.post("/move", response_model=MovementOut, status_code=status.HTTP_201_CREATED)
-def move_stock(payload: MovementCreate, db: Session = Depends(get_db)):
-    """
-    Registra movimentação de estoque:
-    - type = "IN" (entrada) ou "OUT" (saída)
-    - valida saldo para saídas
-    """
+def move_stock(
+    payload: MovementCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     item = db.get(Item, payload.item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item não encontrado.")
@@ -58,27 +52,25 @@ def move_stock(payload: MovementCreate, db: Session = Depends(get_db)):
                 detail=f"Sem saldo suficiente. Saldo atual: {balance}",
             )
 
-    mov = StockMovement(**payload.model_dump())
+    data = payload.model_dump()
+    data["user_id"] = current_user.id  # auditoria básica
+    mov = StockMovement(**data)
     db.add(mov)
     db.commit()
     db.refresh(mov)
     return mov
 
 
+# ---------- LIST ----------
 @router.get("/movements", response_model=list[MovementOut])
 def list_movements(
     db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
     item_id: Optional[int] = None,
-    type: Optional[str] = Query(None, pattern="^(IN|OUT)$"),
+    type: Optional[Literal["IN", "OUT"]] = Query(None),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
-    """
-    Lista movimentações com filtros opcionais:
-    - item_id
-    - type: IN ou OUT
-    - paginação: limit/offset
-    """
     q = db.query(StockMovement)
     if item_id is not None:
         q = q.filter(StockMovement.item_id == item_id)
@@ -87,11 +79,12 @@ def list_movements(
     return q.order_by(StockMovement.id.desc()).offset(offset).limit(limit).all()
 
 
+# ---------- ALERTS ----------
 @router.get("/alerts/low")
-def low_stock_alerts(db: Session = Depends(get_db)):
-    """
-    Retorna itens com saldo abaixo do mínimo (min_stock).
-    """
+def low_stock_alerts(
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
     alerts = []
     items = db.query(Item).all()
     for it in items:
@@ -111,12 +104,11 @@ def low_stock_alerts(db: Session = Depends(get_db)):
 
 
 @router.get("/alerts/expiry")
-def expiry_alerts(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db)):
-    """
-    Lotes vencidos ou a vencer em N dias.
-    - Busca a menor data de validade por lote+item (se houver duplicatas).
-    - Como é MVP, percorre movimentos com expiration_date.
-    """
+def expiry_alerts(
+    days: int = Query(30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
     today = date.today()
     limit_date = today + timedelta(days=days)
 
@@ -141,13 +133,16 @@ def expiry_alerts(days: int = Query(30, ge=1, le=365), db: Session = Depends(get
     return alerts
 
 
+# ---------- QUICK BALANCE ----------
 @router.get("/balance/{item_id}")
-def quick_balance(item_id: int, db: Session = Depends(get_db)):
-    """
-    Atalho: retorna só o saldo atual de um item.
-    """
+def quick_balance(
+    item_id: int,
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
     item = db.get(Item, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item não encontrado.")
     bal = get_balance(db, item_id)
     return {"item_id": item_id, "name": item.name, "balance": int(bal), "unit": item.unit}
+

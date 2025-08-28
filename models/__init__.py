@@ -1,22 +1,23 @@
 # models/__init__.py
+from . import user  # noqa: F401
+from . import patient  # noqa: F401
+from . import appointment  # noqa: F401
+from . import item  # noqa: F401
+from . import stock_movement  # noqa: F401
 
-from . import user
-from . import patient
-from . import appointment
-from . import item, stock_movement
-
-
+# Pacote pode ter variações de "record"
 try:
-    from . import record
+    from . import record  # noqa: F401
 except ImportError:
     pass
 
 try:
-    from . import records
+    from . import records  # noqa: F401
 except ImportError:
     pass
 
 try:
-    from . import medical_record
+    from . import medical_record  # noqa: F401
 except ImportError:
     pass
+

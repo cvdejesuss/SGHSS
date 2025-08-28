@@ -2,6 +2,7 @@
 
 from datetime import timedelta
 from typing import Annotated, Literal
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -9,9 +10,9 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models.user import User
-from core.config import pwd_context, ACCESS_TOKEN_EXPIRE_MINUTES
-from auth.jwt_handler import create_access_token  # deve aceitar expires_delta=timedelta(...) (seu handler)
-from auth.auth_utils import get_current_user  # retorna User a partir do token
+from core.config import settings   # 👈 agora usamos settings
+from auth.jwt_handler import create_access_token
+from auth.auth_utils import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -23,20 +24,20 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=4)
 
 
-# Ajuste as opções de role ao seu domínio:
 RoleLiteral = Literal["admin", "medico", "atendente", "user"]
 
 class RegisterRequest(BaseModel):
     name: str = Field(min_length=2)
     email: EmailStr
     password: str = Field(min_length=4)
-    role: RoleLiteral = "user"   # evita valores inválidos por engano
+    cpf: str = Field(min_length=11, max_length=14)  # pode vir formatado ###.###.###-##
+    role: RoleLiteral = "user"   # valor default seguro
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES
+    expires_in: int = settings.ACCESS_TOKEN_EXPIRE_MINUTES
     user_id: int
     role: str
 
@@ -48,21 +49,27 @@ class UserOut(BaseModel):
     role: str
 
     class Config:
-        from_attributes = True  # pydantic v2
+        from_attributes = True  # Pydantic v2
 
 
 # ======== HELPERS ========
 
 def _verify_password(plain: str, hashed: str) -> bool:
+    """Confere senha em texto puro com hash armazenado."""
     try:
-        return pwd_context.verify(plain, hashed)
+        return settings.pwd_context.verify(plain, hashed)
     except Exception:
-        # evita levantar erro de algoritmo ausente, etc.
         return False
 
 
 def _hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    """Gera hash da senha para salvar no banco."""
+    return settings.pwd_context.hash(plain)
+
+
+def _only_digits(s: str) -> str:
+    """Remove caracteres não numéricos (útil para CPF)."""
+    return re.sub(r"\D", "", s or "")
 
 
 def require_role(allowed: list[str]):
@@ -86,9 +93,6 @@ def require_role(allowed: list[str]):
 def login(data: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
     """
     Autentica por e-mail/senha e retorna um JWT.
-    O token inclui:
-      - sub = e-mail do usuário
-      - extra claims: uid, role (úteis no front)
     """
     email = str(data.email).strip().lower()
     user = db.query(User).filter(User.email == email).first()
@@ -99,13 +103,13 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
             detail="Credenciais inválidas"
         )
 
-    # expiração real com base na config
-    expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # expiração real baseada no settings
+    expires_delta = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     token = create_access_token(
         sub=user.email,
         extra={"uid": user.id, "role": user.role},
-        expires_delta=expires_delta,  # seu handler deve usar isso ao assinar
+        expires_delta=expires_delta,
     )
 
     return TokenResponse(
@@ -119,26 +123,27 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
 def register(data: RegisterRequest, db: Session = Depends(get_db)) -> UserOut:
     """
     Registra um novo usuário.
-    Se quiser restringir a admins:
-        current = Depends(require_role(["admin"]))
-    e adicione como parâmetro da função.
     """
     name = data.name.strip()
     email = str(data.email).strip().lower()
     role = str(data.role).strip().lower()
+    cpf_digits = _only_digits(data.cpf)
 
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="E-mail já cadastrado"
-        )
+    if len(cpf_digits) != 11:
+        raise HTTPException(status_code=400, detail="CPF deve conter 11 dígitos.")
+
+    # Verifica duplicidade
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(status_code=409, detail="E-mail já cadastrado")
+    if db.query(User).filter(User.cpf == cpf_digits).first():
+        raise HTTPException(status_code=409, detail="CPF já cadastrado")
 
     user = User(
         name=name,
         email=email,
         password=_hash_password(data.password),
         role=role,
+        cpf=cpf_digits,
     )
     db.add(user)
     db.commit()
@@ -148,6 +153,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_db)) -> UserOut:
 
 @router.get("/me", response_model=UserOut)
 def me(current_user: User = Depends(get_current_user)) -> UserOut:
-    """Retorna o usuário autenticado a partir do token de acesso."""
+    """Retorna o usuário autenticado a partir do token."""
     return current_user
+
 
