@@ -1,85 +1,49 @@
 # routers/record_router.py
 
-from typing import Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-
 from database import get_db
 from models.record import Record
 from models.patient import Patient
-from models.user import User
-from schemas.record import RecordCreate, RecordUpdate, RecordOut
-from schemas.common import Page
-from auth.auth_utils import require_role, get_current_user
+from schemas.record import RecordCreate, RecordOut
+from datetime import datetime, timezone
+from auth.auth_utils import require_role
 
-router = APIRouter(prefix="/patients", tags=["Records"])
+router = APIRouter(
+    prefix="/patients",
+    tags=["Records"]
+)
 
-
-# Somente médicos podem criar prontuários
-@router.post("/{patient_id}/records", response_model=RecordOut, status_code=status.HTTP_201_CREATED)
+# Somente doctor pode criar prontuários
+@router.post("/{patient_id}/records", response_model=RecordOut)
 def create_record(
     patient_id: int,
-    payload: RecordCreate,
+    record: RecordCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(["medico"])),
+    _user=Depends(require_role(["doctor"]))  # <- ajustado para o novo slug
 ):
-    patient = db.get(Patient, patient_id)
+    patient = db.query(Patient).filter(Patient.id == patient_id).first()
     if not patient:
         raise HTTPException(status_code=404, detail="Paciente não encontrado")
 
-    record = Record(
+    db_record = Record(
         patient_id=patient_id,
-        professional_id=current_user.id,   # <-- profissional autenticado
-        notes=payload.notes,
+        notes=record.notes,
+        created_at=datetime.now(timezone.utc)
     )
-    db.add(record)
+    db.add(db_record)
     db.commit()
-    db.refresh(record)
-    return record
+    db.refresh(db_record)
+    return db_record
 
-
-# Lista (paginada). Acesso restrito a médicos e admins (ajuste se quiser).
-@router.get("/{patient_id}/records", response_model=Page[RecordOut])
-def list_records(
+# Aqui pode ficar acessível para perfis com acesso clínico
+@router.get("/{patient_id}/records", response_model=list[RecordOut])
+def get_records(
     patient_id: int,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_role(["medico", "admin"])),
-    page: int = Query(1, ge=1),
-    size: int = Query(10, ge=1, le=100),
-) -> Page[RecordOut]:
-    if not db.get(Patient, patient_id):
-        raise HTTPException(status_code=404, detail="Paciente não encontrado")
-
-    q = db.query(Record).filter(Record.patient_id == patient_id).order_by(Record.id.desc())
-    total = q.count()
-    items = q.offset((page - 1) * size).limit(size).all()
-    return Page[RecordOut](items=items, page=page, size=size, total=total)
-
-
-# (Opcional) Update de notas do prontuário
-@router.patch("/{patient_id}/records/{record_id}", response_model=RecordOut)
-def update_record(
-    patient_id: int,
-    record_id: int,
-    payload: RecordUpdate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_role(["medico"])),
+    _user=Depends(require_role(["doctor", "admin"]))  # <- ajustado
 ):
-    rec = db.get(Record, record_id)
-    if not rec or rec.patient_id != patient_id:
-        raise HTTPException(status_code=404, detail="Registro não encontrado")
-
-    # Regra simples: médico autor (owner) ou admin pode editar
-    if current_user.role != "admin" and rec.professional_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Sem permissão para editar este registro")
-
-    data = payload.model_dump(exclude_unset=True)
-    if "notes" in data and data["notes"]:
-        rec.notes = data["notes"]
-
-    db.commit()
-    db.refresh(rec)
-    return rec
+    records = db.query(Record).filter(Record.patient_id == patient_id).all()
+    return records
 
 

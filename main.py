@@ -14,6 +14,7 @@ from routers import (
     record_router,
     item_router,
     stock_router,
+    user_admin_router,
 )
 
 description = """
@@ -61,6 +62,7 @@ app.include_router(appointment_router.router, prefix=api_prefix)  # /api/v1/appo
 app.include_router(record_router.router,      prefix=api_prefix)  # /api/v1/patients/{id}/records/...
 app.include_router(item_router.router,        prefix=api_prefix)  # /api/v1/items/...
 app.include_router(stock_router.router,       prefix=api_prefix)  # /api/v1/stock/...
+app.include_router(user_admin_router.router,  prefix=settings.API_V1_PREFIX)
 
 # Endpoints utilitários
 @app.get("/")

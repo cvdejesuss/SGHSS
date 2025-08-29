@@ -9,7 +9,9 @@ class User(Base):
     name = Column(String(160), nullable=False, index=True)
     email = Column(String(160), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
-    role = Column(String(32), nullable=False, default="user", index=True)
+    # Slugs oficiais: admin | doctor | nurse | technician
+    # Default: menor privilégio
+    role = Column(String(32), nullable=False, default="technician", index=True)
     cpf = Column(String(14), unique=True, index=True, nullable=False)
 
     def __repr__(self) -> str:
@@ -17,3 +19,4 @@ class User(Base):
 
 # Índices compostos úteis (opcional):
 Index("ix_users_email_role", User.email, User.role)
+

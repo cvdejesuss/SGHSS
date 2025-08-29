@@ -2,13 +2,13 @@
 from pydantic import BaseModel, EmailStr, constr
 from typing import Optional, Literal
 
-Role = Literal["user", "admin", "medico", "atendente"]  # alinhe com o que o sistema usa
+Role = Literal["admin", "doctor", "nurse", "technician"]  # slugs oficiais
 
 class UserBase(BaseModel):
     name: constr(min_length=2, max_length=160)
     email: EmailStr
     cpf: constr(min_length=11, max_length=14)
-    role: Role = "user"
+    role: Role = "technician"
 
 class UserCreate(UserBase):
     password: constr(min_length=6, max_length=255)
@@ -25,3 +25,4 @@ class UserOut(UserBase):
 
     class Config:
         from_attributes = True
+
