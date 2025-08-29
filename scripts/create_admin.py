@@ -1,4 +1,4 @@
-# script/create_admin.py
+# scripts/create_admin.py
 # Cria APENAS usuários ADMIN via linha de comando.
 
 import os

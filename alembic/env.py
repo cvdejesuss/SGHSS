@@ -43,7 +43,7 @@ def is_sqlite(url: str) -> bool:
 def run_migrations_offline() -> None:
     """
     Executa migrações no modo 'offline'.
-    Gera o script de SQL sem precisar de DB conectado.
+    Gera o scripts de SQL sem precisar de DB conectado.
     """
     url = config.get_main_option("sqlalchemy.url")
 

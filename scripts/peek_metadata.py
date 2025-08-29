@@ -1,4 +1,4 @@
-# script/peek_metadata.py
+# scripts/peek_metadata.py
 
 import os
 import sys

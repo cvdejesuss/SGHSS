@@ -1,4 +1,4 @@
-# alembic/script.py.mako
+# alembic/scripts.py.mako
 
 """init schema
 
