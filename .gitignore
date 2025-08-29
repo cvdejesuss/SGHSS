@@ -282,6 +282,16 @@ poetry.toml
 
 # ruff
 .ruff_cache/
+# IDE / ambiente
+.idea/
+.venv/
+*.pyc
+
+
+# Bancos e segredos
+*.db
+*.sqlite3
+
 
 # LSP config files
 pyrightconfig.json
