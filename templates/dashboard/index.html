@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="mb-0">Dashboard</h4>
+  <div class="text-muted small">Logado como: <span class="fw-semibold">{{ user.get("sub") }}</span> ({{ user.get("role") }})</div>
+</div>
+
+<div class="row g-3">
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Pacientes</div>
+        <div class="fs-4 fw-semibold" id="kpi-patients">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Consultas (hoje)</div>
+        <div class="fs-4 fw-semibold" id="kpi-appts-today">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Itens abaixo do mínimo</div>
+        <div class="fs-4 fw-semibold" id="kpi-low-stock">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-sm-6 col-lg-3">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <div class="text-muted small">Lotes a vencer (30d)</div>
+        <div class="fs-4 fw-semibold" id="kpi-expiring">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Exemplo simples: você pode depois substituir por gráficos do Skote/Admin -->
+<script>
+  // Carrega KPIs chamando sua API (se preferir, use HTMX).
+  (async () => {
+    try {
+      // As rotas abaixo são exemplos; ajuste conforme seus endpoints.
+      // Se preferir passar o token via header, exponha um endpoint /web/data que o servidor chame com o cookie.
+      const k1 = await fetch('/patients?limit=1');            // total de pacientes: ideal expor /stats/patients
+      const k2 = await fetch('/appointments?limit=1');        // consultas: ideal expor /stats/appointments/today
+      const k3 = await fetch('/stock/alerts/low');
+      const k4 = await fetch('/stock/alerts/expiry?days=30');
+
+      // Para simplificar, marcamos apenas "—" se não der certo.
+      document.getElementById('kpi-patients').textContent     = k1.ok ? '•' : '—';
+      document.getElementById('kpi-appts-today').textContent  = k2.ok ? '•' : '—';
+      document.getElementById('kpi-low-stock').textContent    = k3.ok ? (await k3.json()).length : '—';
+      document.getElementById('kpi-expiring').textContent     = k4.ok ? (await k4.json()).length : '—';
+    } catch (e) {
+      // silencioso por enquanto
+    }
+  })();
+</script>
+{% endblock %}

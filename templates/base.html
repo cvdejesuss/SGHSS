@@ -1,10 +1,61 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html lang="pt-BR">
 <head>
-    <meta charset="UTF-8">
-    <title>Title</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>{{ title or "SGHSS" }}</title>
+
+  <!-- CSS (ajuste os nomes conforme existem no seu /static/skote/assets/css/) -->
+  <link rel="stylesheet" href="{{ url_for('static', path='skote/assets/css/bootstrap.min.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='skote/assets/css/icons.min.css') }}">  {# se não existir, remova #}
+  <link rel="stylesheet" href="{{ url_for('static', path='skote/assets/css/app.min.css') }}">     {# se for app.min.css, troque #}
+
+  <style>
+    .sghss-sidebar { width:240px; min-height:100vh; border-right:1px solid rgba(0,0,0,.06); }
+    .sghss-content { margin-left:240px; min-height:100vh; }
+    @media (max-width: 991.98px) {
+      .sghss-sidebar{ position:fixed; z-index:1030; left:-260px; transition:left .2s; }
+      body.sidebar-open .sghss-sidebar{ left:0; }
+      .sghss-content{ margin-left:0; }
+    }
+    .nav-link.active{ font-weight:600; }
+  </style>
 </head>
 <body>
+  <header class="navbar navbar-light bg-light px-3">
+    <button class="btn btn-outline-secondary me-2 d-lg-none" id="btnSidebar" type="button">
+      <i class="mdi mdi-menu"></i>
+    </button>
+    <a class="navbar-brand fw-semibold" href="/web/dashboard">SGHSS</a>
+    <div class="ms-auto">
+      {% if user %}
+        <span class="me-3 text-muted small">{{ user.get('sub') }} ({{ user.get('role') }})</span>
+        <a class="btn btn-outline-secondary btn-sm" href="/web/logout">Sair</a>
+      {% endif %}
+    </div>
+  </header>
 
+  <aside class="sghss-sidebar bg-white p-3">
+    <ul class="nav flex-column">
+      <li class="nav-item"><a href="/web/dashboard" class="nav-link {% if active=='dashboard' %}active{% endif %}">Dashboard</a></li>
+      <li class="nav-item"><a href="/web/patients" class="nav-link {% if active=='patients' %}active{% endif %}">Pacientes</a></li>
+    </ul>
+  </aside>
+
+  <main class="sghss-content">
+    <div class="container-fluid py-4">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <!-- JS: libs -> plugin -> app -->
+  <script src="{{ url_for('static', path='skote/assets/libs/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+  <script src="{{ url_for('static', path='skote/assets/js/plugin.js') }}"></script>
+  <script src="{{ url_for('static', path='skote/assets/js/app.js') }}"></script>
+  <script>
+    document.getElementById('btnSidebar')?.addEventListener('click', () => {
+      document.body.classList.toggle('sidebar-open');
+    });
+  </script>
 </body>
 </html>

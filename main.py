@@ -2,6 +2,7 @@
 
 from time import monotonic
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 
 from core.config import settings, AppInfo
@@ -41,6 +42,9 @@ app.add_middleware(
     allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
+# Static (para servir Skote/HTML, imagens, etc.)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 # Middleware simples de latência e request-id
 @app.middleware("http")
 async def add_process_time_header(request: Request, call_next):
@@ -62,7 +66,21 @@ app.include_router(appointment_router.router, prefix=api_prefix)  # /api/v1/appo
 app.include_router(record_router.router,      prefix=api_prefix)  # /api/v1/patients/{id}/records/...
 app.include_router(item_router.router,        prefix=api_prefix)  # /api/v1/items/...
 app.include_router(stock_router.router,       prefix=api_prefix)  # /api/v1/stock/...
-app.include_router(user_admin_router.router,  prefix=settings.API_V1_PREFIX)
+app.include_router(user_admin_router.router,  prefix=api_prefix)  # /api/v1/users/...
+
+# Rotas Web (páginas HTML com Jinja2) — opcional, se existir web/routes.py
+try:
+    from web.routes import router as web_router
+    app.include_router(web_router)
+except Exception:
+    pass
+
+# Painel Admin (SQLAdmin) — opcional, se existir admin_panel.py
+try:
+    from admin_panel import mount_admin
+    mount_admin(app)
+except Exception:
+    pass
 
 # Endpoints utilitários
 @app.get("/")
@@ -80,5 +98,6 @@ def readiness():
 @app.get(f"{api_prefix}/info", response_model=AppInfo)
 def info():
     return AppInfo()
+
 
 

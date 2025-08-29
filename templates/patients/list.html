@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="mb-0">Pacientes</h4>
+  <a href="#" class="btn btn-primary disabled" title="(futuro) criar pela web">Novo Paciente</a>
+</div>
+
+<div class="card border-0 shadow-sm">
+  <div class="card-body">
+    {% if patients %}
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th class="text-nowrap">ID</th>
+              <th>Nome</th>
+              <th>CPF</th>
+              <th>Nascimento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for p in patients %}
+              <tr>
+                <td class="text-nowrap">{{ p.id }}</td>
+                <td>{{ p.name }}</td>
+                <td>{{ p.cpf or "—" }}</td>
+                <td>{{ p.birth_date or "—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted">Nenhum paciente encontrado.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -20,7 +20,7 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
 Base = declarative_base()
 
-# 🔴 IMPORTANTE: registra as tabelas no Base.metadata
+# IMPORTANTE: registra as tabelas no Base.metadata
 import models  # noqa: F401  # garante que os modelos sejam importados
 
 def get_db() -> Generator[Session, None, None]:
